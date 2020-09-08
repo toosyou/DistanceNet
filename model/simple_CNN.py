@@ -8,7 +8,7 @@ class simple_CNN(nn.Module):
         super(simple_CNN, self).__init__()
         self.backbone = self.make_layer(num_layers, in_ch)
 
-        self.ap = nn.AvgPool1d(kernel_size=48)
+        self.ap = nn.AvgPool1d(kernel_size=6)
 
         #self.final1 = nn.Linear(in_ch*(2**num_layers), in_ch*(2**(num_layers-1)))
         #self.final2 = nn.Linear(in_ch*(2**(num_layers-1)), in_ch*(2**(num_layers-2)))

@@ -2,18 +2,20 @@ import torch
 import torch.nn as nn
 import numpy as np
 from model import simple_CNN, Resnet
-from data.gen_data import gen_distance_peak_data
+from data.gen_data import gen_distance_peak_data, gen_distance_peak_data_choice
 import torch.utils.data as Data
 
 def train(batch_size=64):
-    #model = simple_CNN.simple_CNN(1, 2, 1, 100)
-    model = Resnet.resnet18()
+    model = simple_CNN.simple_CNN(4, 1, 1, 100)
+    #model = Resnet.resnet18()
     model = model.cuda()
     model.train()
 
     num_data = 100000
 
-    X, y = gen_distance_peak_data(num_data=num_data, signal_length=200)
+    #X, y = gen_distance_peak_data(num_data=num_data, signal_length=200)
+    X, y = gen_distance_peak_data_choice(num_data=num_data, signal_length=100)
+    X = X[:, :1, :] + X[:, 1:, :]
     ds = Data.TensorDataset(torch.tensor(X-0.5, dtype=torch.float32), torch.tensor(np.abs(y), dtype=torch.float32))
 
     train_len = int(len(ds)*0.6)
