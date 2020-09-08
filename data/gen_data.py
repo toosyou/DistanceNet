@@ -28,7 +28,7 @@ def gen_distance_peak_data(num_data=100000, channel=2, signal_length=100):
     for i in range(num_data):
         peaks = []
         for j in range(channel):
-            sig, peak = gen_sig()
+            sig, peak = gen_sig(signal_length=signal_length)
             X[i, j] = sig
             peaks.append(peak)
         Y[i] = peaks[1] - peaks[0]
