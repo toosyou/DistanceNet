@@ -6,17 +6,17 @@ from data.gen_data import gen_distance_peak_data, gen_distance_peak_data_choice
 import torch.utils.data as Data
 
 def train(batch_size=64):
-    model = simple_CNN.simple_CNN(4, 1, 1, 100)
+    model = simple_CNN.simple_CNN(4, 2, 1, 100)
     #model = Resnet.resnet18()
     model = model.cuda()
     model.train()
 
-    num_data = 100000
+    num_data = 1000
 
     #X, y = gen_distance_peak_data(num_data=num_data, signal_length=200)
-    X, y = gen_distance_peak_data_choice(num_data=num_data, signal_length=100)
-    X = X[:, :1, :] + X[:, 1:, :]
-    ds = Data.TensorDataset(torch.tensor(X-0.5, dtype=torch.float32), torch.tensor(np.abs(y), dtype=torch.float32))
+    X, y = gen_distance_peak_data(num_data=num_data, signal_length=100)
+    # X = X[:, :1, :] + X[:, 1:, :]
+    ds = Data.TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
 
     train_len = int(len(ds)*0.6)
     val_len = int(len(ds)*0.2)
@@ -35,7 +35,6 @@ def train(batch_size=64):
 
         total_loss = 0
         avg_loss = 0
-        fake_loss = 0
 
         for batch_idx, (inputs, labels) in enumerate(train_loader):
             inputs = inputs.cuda()
@@ -43,15 +42,14 @@ def train(batch_size=64):
             optimizer.zero_grad()
 
             pred = model(inputs)
-            pred = torch.exp(pred)
-            loss = criterion(pred, labels)
+            loss = criterion(pred.view(-1), labels)
 
             loss.backward()
             optimizer.step()
             
             total_loss += loss.item()
             avg_loss += avg_loss_calc(pred, labels).item()
-            #fake_loss += avg_loss_calc(torch.zeros(labels.size()), labels).item()
+            
         avg_val_loss = evaluate(model, val_loader)
         avg_test_loss = evaluate(model, test_loader)
 
