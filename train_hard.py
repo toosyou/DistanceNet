@@ -5,26 +5,34 @@ from model import simple_CNN, Resnet
 from data.gen_data import gen_distance_peak_data, gen_distance_peak_data_choice
 import torch.utils.data as Data
 
-def train(batch_size=64, data_size=1000, train_epochs=100, verbose=True):
+def train(batch_size=64, data_size=100000, train_epochs=1000, verbose=True):
     model = simple_CNN.simple_CNN(4, 2, 1, 100)
     #model = Resnet.resnet18()
     model = model.cuda()
     model.train()
 
-    num_data = data_size
-
     #X, y = gen_distance_peak_data(num_data=num_data, signal_length=200)
-    X, y = gen_distance_peak_data(num_data=num_data, signal_length=100)
+    X, y = gen_distance_peak_data_choice(num_data=data_size, signal_length=100)
     # X = X[:, :1, :] + X[:, 1:, :]
-    ds = Data.TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
+    train_ds = Data.TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
 
+    X, y = gen_distance_peak_data(num_data=100, signal_length=100)
+
+    val_ds = Data.TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
+
+    X, y = gen_distance_peak_data(num_data=100, signal_length=100)
+
+    test_ds = Data.TensorDataset(torch.tensor(X, dtype=torch.float32), torch.tensor(y, dtype=torch.float32))
+
+    """
     train_len = int(len(ds)*0.6)
     val_len = int(len(ds)*0.2)
     test_len = int(len(ds)*0.2)
     train_set, val_set, test_set = Data.random_split(ds, [train_len, val_len, test_len])
-    train_loader = Data.DataLoader(train_set, batch_size=batch_size, shuffle=True)
-    val_loader = Data.DataLoader(val_set, batch_size=batch_size, shuffle=True)
-    test_loader = Data.DataLoader(test_set, batch_size=batch_size, shuffle=True)
+    """
+    train_loader = Data.DataLoader(train_ds, batch_size=batch_size, shuffle=True)
+    val_loader = Data.DataLoader(val_ds, batch_size=batch_size, shuffle=True)
+    test_loader = Data.DataLoader(test_ds, batch_size=batch_size, shuffle=True)
     
     optimizer = torch.optim.Adam(params=model.parameters())
 
@@ -64,6 +72,7 @@ def avg_loss_calc(pred, target):
         pred: (tensor) with sized [#data, ]
         target: (tensor) with sized [#data, ]
     """
+    
     num_data = pred.size(0)
     total_loss = 0
     for i in range(num_data):

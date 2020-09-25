@@ -12,6 +12,7 @@ numpy = "*"
 scipy = "*"
 matplotlib = "*"
 jupyterlab = "*"
+tqdm = "*"
 
 [requires]
 python_version = "3.6"
