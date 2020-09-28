@@ -134,7 +134,7 @@ class DataGenerator():
                 sig[j] = max(window[index-min(peaks_position[i]+self.padding_length-width, 0)], sig[j])
         # replace all value within gaussian peaks with real gaussian peaks number
         for index, j in enumerate(range(max(peaks_position[gaussian_peak_position]+self.padding_length-gaussian_width, 0), min(peaks_position[gaussian_peak_position]+self.padding_length+gaussian_width-1, self.signal_length+2*self.padding_length))):
-            sig[j] = gaussian_window[index-min(peaks_position[gaussian_peak_position]+self.padding_length-width, 0)]
+            sig[j] = gaussian_window[index-min(peaks_position[gaussian_peak_position]+self.padding_length-gaussian_width, 0)]
 
         return sig, peaks_position[gaussian_peak]
 
