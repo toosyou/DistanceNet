@@ -1,10 +1,14 @@
 import numpy as np
+import tensorflow as tf
 from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Dense
+from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Dense, Flatten
 from tensorflow.keras.callbacks import EarlyStopping
 
 from data.gen_data import gen_distance_peak_data_choice, gen_distance_peak_data
-from model.distance import DistanceLayer
+from model.distance import MultiHeadDistanceLayer
+
+for gpu in tf.config.experimental.list_physical_devices('GPU'):
+    tf.config.experimental.set_memory_growth(gpu, True)
 
 def get_model(input_length):
     inputs = Input(shape=(input_length, 2))
@@ -16,9 +20,9 @@ def get_model(input_length):
     feature = Conv1D(64, 3, activation='relu', padding='same')(feature)
     feature = MaxPooling1D(2)(feature)
 
-    output = DistanceLayer(64, 64, input_length//4, name='distance_layer')(feature)
+    output = MultiHeadDistanceLayer(2, 16, input_length//4, name='distance_layer')(feature)
 
-    output = Dense(32, activation='relu')(output)
+    output = Flatten()(output)
     output = Dense(1)(output)
 
     return Model(inputs=inputs, outputs=output)
