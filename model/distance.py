@@ -9,6 +9,16 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.max_length = max_length
         super().__init__(**kwargs)
 
+    def get_config(self):
+        config = {
+            'num_head': self.num_head,
+            'head_dim': self.head_dim,
+            'max_length': self.max_length
+        }
+        base_config = super().get_config()
+        config.update(base_config)
+        return config
+
     @staticmethod
     def gaussian(x, mean, std):
         return (1.0 / std / tf.sqrt(2.0 * 3.1415926))*tf.exp(-0.5 * (x - mean)**2.0 / std**2.0)
@@ -19,27 +29,26 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         # query
         self.query_embedding_weight = self.add_weight(shape=(input_dim, self.num_head * self.head_dim),
                                                         initializer='GlorotNormal',
-                                                        trainable=True)
+                                                        trainable=True, name='query_embedding_weight')
         self.query_embedding_bias = self.add_weight(shape=(self.num_head, ),
                                                         initializer='Zeros',
-                                                        trainable=True)
+                                                        trainable=True, name='query_embedding_bias')
 
         # key
-        
         self.key_embedding_weight = self.add_weight(shape=(input_dim, self.num_head * self.head_dim),
                                                         initializer='GlorotNormal',
-                                                        trainable=True)
+                                                        trainable=True, name='key_embedding_weight')
         self.key_embedding_bias = self.add_weight(shape=(self.num_head, ),
                                                         initializer='Zeros',
-                                                        trainable=True)
+                                                        trainable=True, name='key_embedding_bias')
 
         # prior
         self.prior_mean = self.add_weight(shape=(1, ),
                                             initializer='Zeros',
-                                            trainable=True)
+                                            trainable=True, name='prior_mean')
         self.prior_std = self.add_weight(shape=(1, ),
                                             initializer='Ones',
-                                            trainable=True)
+                                            trainable=True, name='prior_std')
 
         # distance matrix of shape (max_length, max_length)
         self.distances_matrix = K.arange(self.max_length, dtype='float32')[None, :] - K.arange(self.max_length, dtype='float32')[:, None] 
