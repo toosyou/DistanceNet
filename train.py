@@ -43,8 +43,8 @@ if __name__ == '__main__':
     val_set = Data.TensorDataset(torch.tensor(x_val), torch.tensor(y_val))
     #test_set = Data.TensorDataset(torch.tensor(x_test), torch.tensor(y_test))
 
-    train_loader = Data.DataLoader(train_set, batch_size, shuffle=True)
-    val_loader = Data.DataLoader(val_set, batch_size, shuffle=True)
+    train_loader = Data.DataLoader(train_set, batch_size, shuffle=True, num_workers=4)
+    val_loader = Data.DataLoader(val_set, batch_size, shuffle=True, num_workers=4)
     #test_loader = Data.DataLoader(test_set, batch_size, shuffle=True)
 
     model = simple_GINA(x_train.shape[2])

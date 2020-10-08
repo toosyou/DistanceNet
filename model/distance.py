@@ -14,18 +14,18 @@ class MultiHeadDistanceLayer(nn.Module):
 
         self.query = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=True)
         torch.nn.init.xavier_normal_(self.query.weight)
-        #torch.nn.init.kaiming_normal_(self.query.weight)
         self.key = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=True)
         torch.nn.init.xavier_normal_(self.key.weight)
-        #torch.nn.init.kaiming_normal_(self.key.weight)
 
-        self.prior_mean = torch.zeros((1, ), requires_grad=True).cuda()
-        self.prior_std = torch.ones((1, ), requires_grad=True).cuda()
+        self.prior_mean = nn.parameter.Parameter(torch.rand((self.num_head, )) * self.max_length * 2 - self.max_length, requires_grad=True)
+        self.log_prior_std = nn.parameter.Parameter(torch.ones((self.num_head, )) * np.log(self.max_length / 4), requires_grad=True)
 
         self.distances_matrix = torch.arange(self.max_length)[None, :] - torch.arange(self.max_length)[:, None]
         self.distances_matrix = self.distances_matrix.cuda()
 
     def forward(self, inputs):
+        batch_size = inputs.size(0)
+
         query, key = inputs.transpose(1, 2), inputs.transpose(1, 2)
 
         data_length = query.size(1)
@@ -36,10 +36,12 @@ class MultiHeadDistanceLayer(nn.Module):
         multi_head_query = torch.cat(torch.split(query, self.head_dim, dim=2), dim=0)
         multi_head_key = torch.cat(torch.split(key, self.head_dim, dim=2), dim=0)
 
-        prior_array = self.gaussian(self.distances_matrix, self.prior_mean, self.prior_std)
+        prior_array = self.distances_matrix[None, ...].repeat(self.num_head, 1, 1)
+        prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], torch.exp(self.log_prior_std[:, None, None]))
+        prior_array = prior_array.repeat(batch_size, 1, 1)
 
         attension = torch.matmul(multi_head_query, multi_head_key.transpose(1, 2)) * (float(self.head_dim) ** -0.5)
-        attension = attension * prior_array[:data_length, :data_length]
+        attension = attension * prior_array[:, :data_length, :data_length]
         attension = F.softmax(attension, dim=-1)
 
         distance = attension * self.distances_matrix[:data_length, :data_length]
