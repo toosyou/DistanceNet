@@ -1,64 +1,78 @@
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Dense, Flatten
-from tensorflow.keras.callbacks import EarlyStopping
+import torch
+import torch.utils.data as Data
+import torch.nn as nn
+import os
 
-from data.gen_data import gen_distance_peak_data_choice, gen_distance_peak_data
+from data.gen_data import gen_distance_peak_data
+from model.simple_GINA import simple_GINA
 from data.gen_data import DataGenerator
-from model.distance import MultiHeadDistanceLayer
 
-for gpu in tf.config.experimental.list_physical_devices('GPU'):
-    tf.config.experimental.set_memory_growth(gpu, True)
-
-def get_model(input_length):
-    inputs = Input(shape=(input_length, 2))
-    feature = inputs
-    
-    feature = Conv1D(32, 3, activation='relu', padding='same')(feature)
-    feature = MaxPooling1D(2)(feature)
-    
-    feature = Conv1D(64, 3, activation='relu', padding='same')(feature)
-    feature = MaxPooling1D(2)(feature)
-
-    feature = Conv1D(128, 3, activation='relu', padding='same')(feature)
-    feature = MaxPooling1D(2)(feature)
-
-    output = MultiHeadDistanceLayer(2, 16, input_length//(2**3), name='distance_layer')(feature)
-
-    output = Flatten()(output)
-    output = Dense(1)(output)
-
-    return Model(inputs=inputs, outputs=output)
+def validation(model, loader):
+    model.eval()
+    criterion = nn.L1Loss(reduction="sum")
+    total_loss = 0
+    for x, y in loader:
+        x = x.cuda().double()
+        y = y.cuda()
+        pred = model(x)
+        pred = pred.squeeze()
+        loss = criterion(pred, y)
+        total_loss += loss.item()
+    return total_loss
 
 if __name__ == '__main__':
-    '''
-    X_train, y_train = gen_distance_peak_data_choice(100000)
-    X_valid, y_valid = gen_distance_peak_data(100000)
-
-    X_train = np.swapaxes(X_train, 1, 2)
-    X_valid = np.swapaxes(X_valid, 1, 2)
-
-    X_train = np.pad(X_train, ((0, 0), (450, 450), (0, 0)), mode='constant', constant_values=0)
-    X_valid = np.pad(X_valid, ((0, 0), (450, 450), (0, 0)), mode='constant', constant_values=0)
-    '''
-
-    g = DataGenerator(num_data=10000, channel=2, signal_length=1000, padding_length=1000)
+    data_size = 10000
+    epochs = 100
+    batch_size = 128
+    
+    g = DataGenerator(num_data=data_size, channel=2, signal_length=1000, padding_length=1000)
     g.addPeakShape(["triangle", "square"])
-    X_train, y_train = g.generate(noisy_peak_num=4)
-    X_valid, y_valid = g.generate(noisy_peak_num=4)
+    if os.path.exists("./data/train.pkl"):
+        x_train, y_train = torch.load("./data/train.pkl")
+    else:
+        x_train, y_train = g.generate(noisy_peak_num=4)
+        torch.save((x_train, y_train), "./data/train.pkl")
+    if os.path.exists("./data/val.pkl"):
+        x_val, y_val = torch.load("./data/val.pkl")
+    else:
+        x_val, y_val = g.generate(noisy_peak_num=4)
+        torch.save((x_val, y_val), "./data/val.pkl")
 
-    X_train = np.swapaxes(X_train, 1, 2)
-    X_valid = np.swapaxes(X_valid, 1, 2)
+    train_set = Data.TensorDataset(torch.tensor(x_train), torch.tensor(y_train))
+    val_set = Data.TensorDataset(torch.tensor(x_val), torch.tensor(y_val))
+    #test_set = Data.TensorDataset(torch.tensor(x_test), torch.tensor(y_test))
 
-    model = get_model(X_train.shape[1])
-    model.summary()
+    train_loader = Data.DataLoader(train_set, batch_size, shuffle=True)
+    val_loader = Data.DataLoader(val_set, batch_size, shuffle=True)
+    #test_loader = Data.DataLoader(test_set, batch_size, shuffle=True)
 
-    model.compile('adam', loss='MeanAbsoluteError')
+    model = simple_GINA(x_train.shape[2])
+    model = model.double()
+    model = model.cuda()
 
-    model.fit(X_train, y_train, batch_size=64, 
-                epochs=1, validation_data=(X_valid, y_valid),
-                callbacks=[
-                    EarlyStopping(patience=5)
-                ])
-    model.save('test.h5')
+    optimizer = torch.optim.Adam(model.parameters())
+
+    criterion = nn.L1Loss(reduction="sum")
+
+    for epoch in range(epochs):
+        print(f"epoch {epoch}: ", end="")
+        model.train()
+        total_loss = 0
+        for batch_x, batch_y in train_loader:
+            batch_x = batch_x.cuda()
+            batch_y = batch_y.cuda()
+            batch_x = batch_x.double()
+
+            pred = model(batch_x)
+            pred = pred.squeeze()
+            loss = criterion(pred, batch_y)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        total_validation_loss = validation(model, train_loader)
+        print(f"training loss: {(total_loss/data_size)} validation loss: {(total_validation_loss/data_size)}")
