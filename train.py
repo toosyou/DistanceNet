@@ -24,7 +24,7 @@ def get_model(input_length):
     feature = Conv1D(128, 3, activation='relu', padding='same')(feature)
     feature = MaxPooling1D(2)(feature)
 
-    output = MultiHeadDistanceLayer(2, 16, input_length//(2**3), name='distance_layer')(feature)
+    output = MultiHeadDistanceLayer(4, 16, input_length//(2**3), name='distance_layer')(feature)
 
     output = Flatten()(output)
     output = Dense(1)(output)
@@ -57,8 +57,7 @@ if __name__ == '__main__':
     model.compile('adam', loss='MeanAbsoluteError')
 
     model.fit(X_train, y_train, batch_size=64, 
-                epochs=1, validation_data=(X_valid, y_valid),
+                epochs=1000, validation_data=(X_valid, y_valid),
                 callbacks=[
-                    EarlyStopping(patience=5)
+                    EarlyStopping(patience=20)
                 ])
-    model.save('test.h5')

@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, max_length, **kwargs):
+    def __init__(self, num_head, head_dim, max_length, prior_mean=0.0, prior_std=1.0, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.max_length = max_length
@@ -43,12 +43,12 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
                                                         trainable=True, name='key_embedding_bias')
 
         # prior
-        self.prior_mean = self.add_weight(shape=(1, ),
-                                            initializer='Zeros',
+        self.prior_mean = self.add_weight(shape=(self.num_head, ),
+                                            initializer=tf.keras.initializers.RandomUniform(-self.max_length, self.max_length),
                                             trainable=True, name='prior_mean')
-        self.prior_std = self.add_weight(shape=(1, ),
-                                            initializer='Ones',
-                                            trainable=True, name='prior_std')
+        self.log_prior_std = self.add_weight(shape=(self.num_head, ),
+                                            initializer=tf.keras.initializers.Constant(np.log(self.max_length / 4.)),
+                                            trainable=True, name='log_prior_std')
 
         # distance matrix of shape (max_length, max_length)
         self.distances_matrix = K.arange(self.max_length, dtype='float32')[None, :] - K.arange(self.max_length, dtype='float32')[:, None] 
@@ -67,11 +67,13 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         multi_head_key      = tf.concat(tf.split(key, self.num_head, axis=2), axis=0)       # (num_head * ?, data_length, head_dim)
         
         # prior
-        prior_array = self.gaussian(self.distances_matrix, self.prior_mean, self.prior_std) # (data_length, data_length)
+        prior_array = tf.repeat(self.distances_matrix[None, ...], self.num_head, axis=0)                                    # (num_head, data_length, data_length)
+        prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], K.exp(self.log_prior_std[:, None, None]))  # (num_head, data_length, data_length)
+        prior_array = tf.repeat(prior_array, tf.shape(inputs)[0], axis=0)                                                   # (num_head * ?, data_length, data_length)
 
         # calculate distance attension
         attension = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head * ?, data_length, data_length)
-        attension = attension * prior_array[:data_length, :data_length]
+        attension = attension * prior_array[:, :data_length, :data_length]
         attension = tf.keras.layers.Softmax()(attension)
         
         # distance transform
