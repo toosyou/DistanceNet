@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, max_length, prior_mean=0.0, prior_std=1.0, **kwargs):
+    def __init__(self, num_head, head_dim, max_length, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.max_length = max_length
