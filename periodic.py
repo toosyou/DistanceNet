@@ -1,4 +1,6 @@
 import numpy as np
+from sklearn.model_selection import train_test_split
+
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Conv1D, MaxPooling1D, Dense, Flatten
@@ -24,7 +26,10 @@ def get_model(input_length):
     feature = Conv1D(128, 3, activation='relu', padding='same')(feature)
     feature = MaxPooling1D(2)(feature)
 
-    distance_layer = MultiHeadDistanceLayer(4, 16, input_length//(2**3), name='distance_layer')
+    feature = Conv1D(256, 3, activation='relu', padding='same')(feature)
+    feature = MaxPooling1D(2)(feature)
+
+    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**3), name='distance_layer')
     distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
 
     output = distance_layer(feature)
@@ -35,13 +40,14 @@ def get_model(input_length):
     return Model(inputs=inputs, outputs=output)
 
 if __name__ == '__main__':
-    g = DataGenerator(num_data=10000, channel=2, signal_length=1000, padding_length=1000)
-    g.addPeakShape(["triangle", "square"])
-    X_train, y_train = g.generate(noisy_peak_num=4)
-    X_valid, y_valid = g.generate(noisy_peak_num=4)
+    data = np.load('./data/periodic_100000.npz') # (?, 2, 5000)
+    X, peaks = data['signals'], data['peaks']
 
-    X_train = np.swapaxes(X_train, 1, 2)
-    X_valid = np.swapaxes(X_valid, 1, 2)
+    X = X.swapaxes(1, 2) # (?, 5000, 2)
+    y = peaks[:, 1, :] - peaks[:, 0, :] # (?, 10)
+    y = y.mean(axis=-1) # (?)
+
+    X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.33, random_state=42)
 
     model = get_model(X_train.shape[1])
     model.summary()
@@ -53,3 +59,5 @@ if __name__ == '__main__':
                 callbacks=[
                     EarlyStopping(patience=20),
                 ])
+
+    model.save('./periodic_model.h5')
