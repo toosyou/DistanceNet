@@ -56,7 +56,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.key_embedding_bias = self.add_weight(shape=(self.num_head, ),
                                                         initializer='Zeros',
                                                         trainable=True, name='key_embedding_bias')
-                                                        
+
         # distance matrix of shape (max_length, max_length)
         self.distances_matrix = K.arange(self.max_length, dtype='float32')[None, :] - K.arange(self.max_length, dtype='float32')[:, None] 
 
@@ -76,11 +76,6 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         multi_head_query    = tf.concat(tf.split(query, self.num_head, axis=2), axis=0)     # (num_head * ?, data_length, head_dim)
         multi_head_key      = tf.concat(tf.split(key, self.num_head, axis=2), axis=0)       # (num_head * ?, data_length, head_dim)
         
-        # prior
-        prior_array = tf.repeat(self.distances_matrix[None, ...], self.num_head, axis=0)                                    # (num_head, data_length, data_length)
-        prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], K.exp(self.log_prior_std[:, None, None]))  # (num_head, data_length, data_length)
-        prior_array = tf.repeat(prior_array, tf.shape(inputs)[0], axis=0)                                                   # (num_head * ?, data_length, data_length)
-
         # calculate distance attention
         attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head * ?, data_length, data_length)
         attention = tf.keras.layers.Softmax()(attention)
