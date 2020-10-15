@@ -16,6 +16,8 @@ matplotlib = "*"
 jupyterlab = "*"
 sklearn = "*"
 tensorflow = "*"
+scikit-image = "*"
+seaborn = "*"
 
 [requires]
 python_version = "3.6"

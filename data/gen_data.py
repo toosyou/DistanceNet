@@ -96,7 +96,7 @@ class DataGenerator():
             if i in ["triangle", "square"]:
                 self.peak_shape.append(i)
 
-    def generate_single(self, peak=None, noisy_peak_num=0):
+    def generate_single(self, peak=None, noisy_peak_num=0, seed=None):
         """
         generate single signal.
 
@@ -108,19 +108,25 @@ class DataGenerator():
             sig: (Array) with sized [signal_length + 2*padding_length]
             peak: (int) gaussian peak location
         """
-        rng = np.random.default_rng()
+        if seed:
+            rng = np.random.default_rng(seed)
+        else:
+            rng = np.random.default_rng()
+
         num_peaks = noisy_peak_num + 1
         peaks_type = rng.choice(self.peak_shape, num_peaks)
         gaussian_peak = rng.integers(num_peaks)
         peaks_type[gaussian_peak] = "gaussian"
         avg_peak_range = self.signal_length // num_peaks
-        peaks_position = [avg_peak_range*index + i for index, i in enumerate(rng.integers(0, avg_peak_range, num_peaks))]
-        #print(peaks_type)
-        #print(peaks_position)
+        #peaks_position = [avg_peak_range*index + i for index, i in enumerate(rng.integers(0, avg_peak_range, num_peaks))]
+        peaks_position = [avg_peak_range*index + i for index, i in enumerate(np.random.randint(0, avg_peak_range, num_peaks))]
+        
 
         sig = np.zeros(self.signal_length + 2 * self.padding_length)
         for i in range(len(peaks_type)):
+            #width = np.random.randint(80, 120) if peaks_type[i]=="gaussian" else np.random.randint(40, 60)
             width = rng.integers(80, 120) if peaks_type[i]=="gaussian" else rng.integers(40, 60)
+            
             if peaks_type[i] == "gaussian":
                 gaussian_peak_position = i
                 window = self.generate_peak_window(peaks_type[i], width=width, strength=rng.random()*5+22)
@@ -139,7 +145,7 @@ class DataGenerator():
         return sig, peaks_position[gaussian_peak]
 
 
-    def generate(self, noisy_peak_num=2):
+    def generate(self, noisy_peak_num=[2,2], seed=None):
         """
         generate whole dataset.
 
@@ -151,14 +157,15 @@ class DataGenerator():
             Y: (Array) with sized [#data] (currently only support 2 channels)
         """
         X = np.zeros((self.num_data, self.channel, self.signal_length+2*self.padding_length))
-        Y = np.zeros((self.num_data, ))
+        Y = np.zeros((self.num_data, self.channel))
         for i in range(self.num_data):
-            peaks = []
             for j in range(self.channel):
-                sig, peak = self.generate_single(noisy_peak_num=noisy_peak_num)
+                if seed is not None:
+                    sig, peak = self.generate_single(noisy_peak_num=noisy_peak_num[j], seed=seed[i, j])
+                else:
+                    sig, peak = self.generate_single(noisy_peak_num=noisy_peak_num[j], seed=None)
                 X[i, j] = sig
-                peaks.append(peak)
-            Y[i] = peaks[1] - peaks[0]
+                Y[i, j] = peak
         return X, Y
 
     def generate_peak_window(self, peak_type, width, strength):
