@@ -22,8 +22,8 @@ class simple_GINA(nn.Module):
         output = self.mp1(F.relu(self.conv1(x)))
         output = self.mp2(F.relu(self.conv2(output)))
         output = self.mp3(F.relu(self.conv3(output)))
-        output = self.distance(output)
+        output, attention = self.distance(output)
         output = output.view(output.size(0), -1)
         output = self.final(output)
 
-        return output
+        return output, attention

@@ -15,14 +15,21 @@ def validation(model, loader):
     for x, y in loader:
         x = x.cuda().double()
         y = y.cuda()
-        pred = model(x)
+        pred, _ = model(x)
         pred = pred.squeeze()
         loss = criterion(pred, y)
         total_loss += loss.item()
     return total_loss
 
+def test_single_data(model, x, y):
+    model.eval()
+    test_x = torch.tensor(x)
+    test_y = torch.tensor(y)
+    pred, attention = model(test_x)
+    return pred, attention
+
 if __name__ == '__main__':
-    data_size = 10000
+    data_size = 1000
     epochs = 100
     batch_size = 128
     
@@ -64,7 +71,7 @@ if __name__ == '__main__':
             batch_y = batch_y.cuda()
             batch_x = batch_x.double()
 
-            pred = model(batch_x)
+            pred, _ = model(batch_x)
             pred = pred.squeeze()
             loss = criterion(pred, batch_y)
 
@@ -76,3 +83,6 @@ if __name__ == '__main__':
 
         total_validation_loss = validation(model, train_loader)
         print(f"training loss: {(total_loss/data_size)} validation loss: {(total_validation_loss/data_size)}")
+    
+    torch.save(model.state_dict, "model_weight.pkl")
+    

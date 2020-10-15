@@ -40,17 +40,17 @@ class MultiHeadDistanceLayer(nn.Module):
         prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], torch.exp(self.log_prior_std[:, None, None]))
         prior_array = prior_array.repeat(batch_size, 1, 1)
 
-        attension = torch.matmul(multi_head_query, multi_head_key.transpose(1, 2)) * (float(self.head_dim) ** -0.5)
-        attension = attension * prior_array[:, :data_length, :data_length]
-        attension = F.softmax(attension, dim=-1)
+        attention = torch.matmul(multi_head_query, multi_head_key.transpose(1, 2)) * (float(self.head_dim) ** -0.5)
+        attention = attention * prior_array[:, :data_length, :data_length]
+        attention = F.softmax(attention, dim=-1)
 
-        distance = attension * self.distances_matrix[:data_length, :data_length]
+        distance = attention * self.distances_matrix[:data_length, :data_length]
         distance = torch.sum(distance, -1)
 
         distance = distance.unsqueeze(-1)
         distance = torch.cat(torch.split(distance, distance.size(0) // self.num_head, dim=0), dim=-1)
 
-        return distance
+        return distance, attention
 
     @staticmethod
     def gaussian(x, mean, std):
