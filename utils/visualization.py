@@ -17,33 +17,57 @@ def draw(signal1, signal2, attention):
     ax2 = fig.add_subplot(2, 1, 2)
 
     ax1.plot(signal1)
+    ax1.plot(signal2)
     ax2.plot(signal2)
+    ax2.plot(signal1)
 
     for i in range(signal_length):
-        print(i, end='')
         for j in range(signal_length):
-            if attention[i][j] < 0.3:
+            if attention[i][j] < 0.2:
                 continue
-            point1 = (i,signal1[i])
+            point1 = (i, signal1[i])
             point2 = (j, signal2[j])
+            point3 = (i, signal2[i])
+            point4 = (j, signal1[j])
             
-            con = ConnectionPatch(xyA=point1, xyB=point2, coordsA="data", coordsB="data", axesA=ax1, axesB=ax2, color='red', alpha=(5 ** attention[i][j] - 1)/4/16)
-            ax2.add_artist(con)
+            pair = [[point1, point2],[point2, point3], [point3, point4], [point4, point1]]
+            color = ['#ff0000', '#00ff00', '#0000ff', '#87cefa']
+
+            for m in range(4):
+                con = ConnectionPatch(xyA=pair[m][0], xyB=pair[m][1], coordsA="data", coordsB="data", axesA=ax1, axesB=ax2, color=color[m], alpha=(5 ** attention[i][j] - 1)/4)
+                ax2.add_artist(con)
     
     return plt
 
 def atten_heatmap(signal1, signal2, attention):
     fig, axes = plt.subplots(2,2, gridspec_kw={'width_ratios': [1, 10], 'height_ratios':[1, 10]}, figsize=(20, 20))
     axes[0,0].set_visible(False)
+    #axes[0,1].set_visible(False)
+    #axes[1,0].set_visible(False)
+    #axes[1,1].set_visible(False)
 
     axes[0, 1].plot(signal1)
+    axes[0, 1].plot(signal2)
     axes[0, 1].axis('off')
-    axes[0, 1].margins(0.005)
-    base = axes[1,0].transData
+    axes[0, 1].margins(0.005)    
+    #axes[1, 2].plot(signal2)
+    #axes[1, 2].axis('off')
+    #axes[1, 2].margins(0.005)
+
     rot = transforms.Affine2D().rotate_deg(90)
+
+    base = axes[1,0].transData
     axes[1, 0].plot(np.arange(attention.shape[1]), signal2, transform=rot+base)
+    axes[1, 0].plot(np.arange(attention.shape[1]), signal1, transform=rot+base)
     axes[1, 0].axis('off')
-    axes[1, 0].margins(0.005)
-    sns.heatmap(attention, ax=axes[1,1], cbar=False, xticklabels=False, yticklabels=False,cmap='bwr')
+    axes[1, 0].margins(0.005)    
+    #base = axes[2,1].transData
+    #axes[2, 1].plot(np.arange(attention.shape[1]), signal1, transform=rot+base)
+    #axes[2, 1].axis('off')
+    #axes[2, 1].margins(0.005)
+
+    sns.heatmap(attention, ax=axes[1,1], cbar=False, xticklabels=False, yticklabels=False,cmap='Reds')
     plt.margins(0)
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
+
+    return plt
