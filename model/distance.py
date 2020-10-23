@@ -2,21 +2,6 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-def get_positional_encoding(input_shape, temperature=10000):
-    batch_size, signal_length, feature_dim = input_shape
-
-    embed = tf.range(signal_length, dtype=tf.float32)# (signal_length)
-    
-    dim_t = tf.range(feature_dim, dtype=tf.float32) # (feature_dim)
-    dim_t = temperature ** (2 * (dim_t // 2) / feature_dim)
-
-    pos = embed[..., tf.newaxis] / dim_t # (signal_length, feature_dim)
-    pos = tf.stack([tf.math.sin(pos[..., 0::2]), tf.math.cos(pos[..., 1::2])], axis=2)
-
-    pos = tf.reshape(pos, [1, signal_length, -1])
-
-    return pos # (1, signal_length, feature_dim)
-
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
     def __init__(self, num_head, head_dim, max_length, **kwargs):
         self.num_head = num_head
@@ -45,7 +30,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.query_embedding_weight = self.add_weight(shape=(input_dim, self.num_head * self.head_dim),
                                                         initializer='GlorotNormal',
                                                         trainable=True, name='query_embedding_weight')
-        self.query_embedding_bias = self.add_weight(shape=(self.num_head, ),
+        self.query_embedding_bias = self.add_weight(shape=(self.num_head, 1, 1, self.head_dim),
                                                         initializer='Zeros',
                                                         trainable=True, name='query_embedding_bias')
 
@@ -53,42 +38,52 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.key_embedding_weight = self.add_weight(shape=(input_dim, self.num_head * self.head_dim),
                                                         initializer='GlorotNormal',
                                                         trainable=True, name='key_embedding_weight')
-        self.key_embedding_bias = self.add_weight(shape=(self.num_head, ),
+        self.key_embedding_bias = self.add_weight(shape=(self.num_head, 1, 1, self.head_dim),
                                                         initializer='Zeros',
                                                         trainable=True, name='key_embedding_bias')
 
+        # prior
+        self.prior_mean = self.add_weight(shape=(self.num_head, ),
+                                            initializer=tf.keras.initializers.RandomUniform(-1, 1),
+                                            trainable=True, name='prior_mean')
+        self.log_prior_std = self.add_weight(shape=(self.num_head, ),
+                                            initializer=tf.keras.initializers.Constant(np.log(0.4)),
+                                            trainable=True, name='log_prior_std')
+
         # distance matrix of shape (max_length, max_length)
         self.distances_matrix = K.arange(self.max_length, dtype='float32')[None, :] - K.arange(self.max_length, dtype='float32')[:, None] 
-
-        self.position_embedding = get_positional_encoding(input_shape)
+        self.distances_matrix /= self.max_length
 
     def call(self, inputs, return_attention=False):
-        # query, key = inputs, inputs
-        query = key = inputs + self.position_embedding
+        query, key = inputs, inputs
 
         # get sizes
         data_length = query.shape[1]
         
         # embedding
-        query = tf.matmul(query, self.query_embedding_weight) + tf.repeat(self.query_embedding_bias, self.head_dim) # (?, data_length, num_head * head_dim)
-        key = tf.matmul(key, self.key_embedding_weight) + tf.repeat(self.key_embedding_bias, self.head_dim)         # (?, data_length, num_head * head_dim)
+        query = tf.matmul(query, self.query_embedding_weight)   # (?, data_length, num_head * head_dim)
+        key = tf.matmul(key, self.key_embedding_weight)         # (?, data_length, num_head * head_dim)
 
-        multi_head_query    = tf.concat(tf.split(query, self.num_head, axis=2), axis=0)     # (num_head * ?, data_length, head_dim)
-        multi_head_key      = tf.concat(tf.split(key, self.num_head, axis=2), axis=0)       # (num_head * ?, data_length, head_dim)
+        multi_head_query    = tf.concat(tf.split(query[None, ...], self.num_head, axis=3), axis=0) + self.query_embedding_bias      # (num_head, ?, data_length, head_dim)
+        multi_head_key      = tf.concat(tf.split(key[None, ...], self.num_head, axis=3), axis=0)   + self.key_embedding_bias        # (num_head, ?, data_length, head_dim)
+
+        # prior
+        prior_array = tf.repeat(self.distances_matrix[None, ...], self.num_head, axis=0)                                    # (num_head, data_length, data_length)
+        prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], K.exp(self.log_prior_std[:, None, None]))  # (num_head, data_length, data_length)
         
         # calculate distance attention
-        attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head * ?, data_length, data_length)
+        attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head, ?, data_length, data_length)
+        attention = attention * prior_array[:, None, :data_length, :data_length]
         attention = tf.keras.layers.Softmax()(attention)
         
         # distance transform
-        distance = attention * self.distances_matrix[:data_length, :data_length]
-        distance = K.sum(distance, axis=-1)
+        distance = attention * self.distances_matrix[:data_length, :data_length]    # (num_head, ?, data_length, data_length)
+        distance = K.sum(distance, axis=-1)                                         # (num_head, ?, data_length)
 
-        distance = K.expand_dims(distance, axis=-1)
-        distance = tf.concat(tf.split(distance, self.num_head, axis=0), axis=-1) # (?, data_length, num_head)
+        distance = K.permute_dimensions(distance, (1, 2, 0))                        # (?, data_length, num_head)
 
         if return_attention:
-            return distance, tf.concat(tf.split(attention[..., None], self.num_head, axis=0), axis=-1) # (?, data_length, num_head), (?, data_length, data_length, num_head)
+            return distance, K.permute_dimensions(attention, (1, 0, 2, 3))
         return distance
 
     def compute_output_shape(self, input_shape):
