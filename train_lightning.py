@@ -2,24 +2,13 @@ import numpy as np
 import torch
 import torch.utils.data as Data
 import torch.nn as nn
+import pytorch_lightning as pl
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 import os
 
-from data.gen_data import gen_distance_peak_data
+from data.gen_data import gen_distance_peak_data, gen_distance_peak_data_choice
 from model.simple_GINA import simple_GINA
 from data.gen_data import DataGenerator
-
-def validation(model, loader):
-    model.eval()
-    criterion = nn.L1Loss()
-    total_loss = 0
-    for x, y in loader:
-        x = x.cuda().double()
-        y = y.cuda()
-        pred, _ = model(x)
-        pred = pred.squeeze()
-        loss = criterion(pred, y)
-        total_loss += loss.item()
-    return total_loss
 
 def test_single_data(model, x, y):
     model.eval()
@@ -30,9 +19,9 @@ def test_single_data(model, x, y):
 
 if __name__ == '__main__':
     data_size = 1000
-    epochs = 100
-    batch_size = 128
-    
+    epochs = 1000
+    batch_size = 64
+    """
     g = DataGenerator(num_data=data_size, channel=2, signal_length=1000, padding_length=1000)
     g.addPeakShape(["triangle", "square"])
     if os.path.exists("./data/train.pkl"):
@@ -45,6 +34,13 @@ if __name__ == '__main__':
     else:
         x_val, y_val = g.generate(noisy_peak_num=4)
         torch.save((x_val, y_val), "./data/val.pkl")
+    """
+
+    x_train, y_train = gen_distance_peak_data_choice(100000)
+    x_val, y_val = gen_distance_peak_data(100000)
+
+    x_train = np.pad(x_train, ((0, 0), (0, 0), (450, 450)), mode='constant', constant_values=0)
+    x_val = np.pad(x_val, ((0, 0), (0, 0), (450, 450)), mode='constant', constant_values=0)
 
     train_set = Data.TensorDataset(torch.tensor(x_train), torch.tensor(y_train))
     val_set = Data.TensorDataset(torch.tensor(x_val), torch.tensor(y_val))
@@ -53,35 +49,6 @@ if __name__ == '__main__':
     train_loader = Data.DataLoader(train_set, batch_size, shuffle=True, num_workers=4)
     val_loader = Data.DataLoader(val_set, batch_size, shuffle=True, num_workers=4)
     #test_loader = Data.DataLoader(test_set, batch_size, shuffle=True)
-    model = simple_GINA(x_train.shape[2])
-    model = model.double()
-    model = model.cuda()
-
-    optimizer = torch.optim.Adam(model.parameters())
-
-    criterion = nn.L1Loss()
-
-    for epoch in range(epochs):
-        print(f"epoch {epoch}: ", end="")
-        model.train()
-        total_loss = 0
-        for batch_x, batch_y in train_loader:
-            batch_x = batch_x.cuda()
-            batch_y = batch_y.cuda()
-            batch_x = batch_x.double()
-
-            pred, _ = model(batch_x)
-            pred = pred.squeeze()
-            loss = criterion(pred, batch_y)
-
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            total_loss += loss.item()
-
-        total_validation_loss = validation(model, train_loader)
-        print(f"training loss: {(total_loss/data_size)} validation loss: {(total_validation_loss/data_size)}")
-    
-    torch.save(model.state_dict, "model_weight.pkl")
-    
+    model = simple_GINA(x_train.shape[2], 4).double()
+    trainer = pl.Trainer(max_epochs=epochs, gpus='1', callbacks=[EarlyStopping(monitor='val_loss', patience=10)])
+    trainer.fit(model, train_loader, val_loader)

@@ -1,4 +1,6 @@
 .ipynb_checkpoints
+lightning_logs
+wandb
 .vscode
 *.pkl
 *.npz

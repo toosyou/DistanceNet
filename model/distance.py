@@ -2,9 +2,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import pytorch_lightning as pl
+from einops import rearrange, reduce, repeat
 
 
-class MultiHeadDistanceLayer(nn.Module):
+class MultiHeadDistanceLayer(pl.LightningModule):
     def __init__(self, num_head, head_dim, max_length, feature_dim):
         super(MultiHeadDistanceLayer, self).__init__()
         self.num_head = num_head
@@ -12,45 +14,50 @@ class MultiHeadDistanceLayer(nn.Module):
         self.max_length = max_length
         self.input_dim = feature_dim
 
-        self.query = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=True)
+        # query
+        self.query = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=False)
         torch.nn.init.xavier_normal_(self.query.weight)
-        self.key = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=True)
+        # key
+        self.key = nn.Linear(self.input_dim, self.num_head*self.head_dim, bias=False)
         torch.nn.init.xavier_normal_(self.key.weight)
 
-        self.prior_mean = nn.parameter.Parameter(torch.rand((self.num_head, )) * self.max_length * 2 - self.max_length, requires_grad=True)
-        self.log_prior_std = nn.parameter.Parameter(torch.ones((self.num_head, )) * np.log(self.max_length / 4), requires_grad=True)
+        self.prior_mean = nn.parameter.Parameter((torch.rand((self.num_head, )) * 2 - 1), requires_grad=True)
+        self.log_prior_std = nn.parameter.Parameter(torch.ones((self.num_head, )) * np.log(0.4), requires_grad=True)
 
         self.distances_matrix = torch.arange(self.max_length)[None, :] - torch.arange(self.max_length)[:, None]
-        self.distances_matrix = self.distances_matrix.cuda()
+        self.distances_matrix = torch.true_divide(self.distances_matrix, self.max_length)
+        self.distances_matrix = self.distances_matrix
 
     def forward(self, inputs):
-        batch_size = inputs.size(0)
+        # inputs (batch, channel, data_length)
 
-        query, key = inputs.transpose(1, 2), inputs.transpose(1, 2)
+        #query, key = inputs.transpose(1, 2), inputs.transpose(1, 2)
+        query, key = rearrange(inputs, 'b c l -> b l c'), rearrange(inputs, 'b c l -> b l c')
 
         data_length = query.size(1)
 
+        # (batch, data_length, head_dim * num_head)
         query = self.query(query)
         key = self.key(key)
 
-        multi_head_query = torch.cat(torch.split(query, self.head_dim, dim=2), dim=0)
-        multi_head_key = torch.cat(torch.split(key, self.head_dim, dim=2), dim=0)
+        multi_head_query = rearrange(query, 'b l (nh hd) -> nh b l hd', hd=self.head_dim, nh=self.num_head)
+        multi_head_key = rearrange(key, 'b l (nh hd) -> nh b l hd', hd=self.head_dim, nh=self.num_head)
 
-        prior_array = self.distances_matrix[None, ...].repeat(self.num_head, 1, 1)
+        # prior (data_length, data_length)
+        self.distances_matrix = self.distances_matrix.type_as(inputs)
+        prior_array = repeat(self.distances_matrix, 'l1 l2 -> nh l1 l2', nh=self.num_head)
         prior_array = self.gaussian(prior_array, self.prior_mean[:, None, None], torch.exp(self.log_prior_std[:, None, None]))
-        prior_array = prior_array.repeat(batch_size, 1, 1)
 
-        attention = torch.matmul(multi_head_query, multi_head_key.transpose(1, 2)) * (float(self.head_dim) ** -0.5)
-        attention = attention * prior_array[:, :data_length, :data_length]
+        attention = torch.matmul(multi_head_query, multi_head_key.transpose(2, 3)) * (float(self.head_dim) ** -0.5)
+        attention = attention * prior_array[:, None, :data_length, :data_length]
         attention = F.softmax(attention, dim=-1)
 
         distance = attention * self.distances_matrix[:data_length, :data_length]
-        distance = torch.sum(distance, -1)
+        distance = reduce(distance, 'nh b l1 l2 -> nh b l1', 'sum')
+        distance = rearrange(distance, 'nh b l -> b l nh')
 
-        distance = distance.unsqueeze(-1)
-        distance = torch.cat(torch.split(distance, distance.size(0) // self.num_head, dim=0), dim=-1)
+        return distance, rearrange(attention, 'nh b l1 l2 -> b nh l1 l2')
 
-        return distance, attention
 
     @staticmethod
     def gaussian(x, mean, std):

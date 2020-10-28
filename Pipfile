@@ -19,6 +19,10 @@ tensorflow = "*"
 scikit-image = "*"
 seaborn = "*"
 ipympl = "*"
+pytorch-lightning = "*"
+einops = "*"
+wandb = "*"
+plotly = "*"
 
 [requires]
 python_version = "3.6"
