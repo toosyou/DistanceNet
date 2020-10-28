@@ -26,7 +26,6 @@ class MultiHeadDistanceLayer(pl.LightningModule):
 
         self.distances_matrix = torch.arange(self.max_length)[None, :] - torch.arange(self.max_length)[:, None]
         self.distances_matrix = torch.true_divide(self.distances_matrix, self.max_length)
-        self.distances_matrix = self.distances_matrix
 
     def forward(self, inputs):
         # inputs (batch, channel, data_length)
