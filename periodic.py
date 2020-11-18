@@ -14,11 +14,6 @@ from model.distance import MultiHeadDistanceLayer
 for gpu in tf.config.experimental.list_physical_devices('GPU'):
     tf.config.experimental.set_memory_growth(gpu, True)
 
-class PriorPrinter(tf.keras.callbacks.Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        distance_layer = self.model.get_layer('distance_layer')
-        tf.print(distance_layer.prior_mean, tf.exp(distance_layer.log_prior_std), summarize=-1)
-
 def get_model(input_length):
     inputs = Input(shape=(input_length, 2))
     feature = inputs
@@ -39,7 +34,7 @@ def get_model(input_length):
     feature = MaxPooling1D(2)(feature)
     feature = BatchNormalization()(feature)
 
-    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**4), name='distance_layer', dynamic=True)
+    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**4), name='distance_layer', dynamic=False, global_mode=True)
     distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
 
     output = distance_layer(feature)
@@ -51,7 +46,7 @@ def get_model(input_length):
     return Model(inputs=inputs, outputs=output)
 
 def distance_regression():
-    data = np.load('./data/periodic_100000.npz', mmap_mode='r') # (?, 2, 5000)
+    data = np.load('/home/toosyou/distance/periodic_100000.npz', mmap_mode='r') # (?, 2, 5000)
     X, peaks = data['signals'], data['peaks']
 
     X = X.swapaxes(1, 2) # (?, 5000, 2)
@@ -83,12 +78,11 @@ if __name__ == '__main__':
     #                 metrics='acc')
     model.compile('adam', loss='MeanAbsoluteError', 
                     metrics=['MeanAbsoluteError'],
-                    run_eagerly=True)
+                    run_eagerly=False)
 
     model.fit(X_train, y_train, batch_size=64, 
                 epochs=1000, validation_data=(X_valid, y_valid),
                 callbacks=[
                     EarlyStopping(patience=2),
-                    PriorPrinter(),
                     WandbCallback()
                 ])
