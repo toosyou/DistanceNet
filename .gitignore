@@ -1,2 +1,7 @@
 .ipynb_checkpoints
 .vscode
+*.ipynb
+wandb/
+*.pyc
+*.npy
+*.npz

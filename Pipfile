@@ -16,6 +16,7 @@ matplotlib = "*"
 jupyterlab = "*"
 sklearn = "*"
 tensorflow = "*"
+wandb = "*"
 
 [requires]
 python_version = "3.6"

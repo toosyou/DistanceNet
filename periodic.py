@@ -39,7 +39,7 @@ def get_model(input_length):
     feature = MaxPooling1D(2)(feature)
     feature = BatchNormalization()(feature)
 
-    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**3), name='distance_layer')
+    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**4), name='distance_layer', dynamic=True)
     distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
 
     output = distance_layer(feature)
@@ -51,7 +51,7 @@ def get_model(input_length):
     return Model(inputs=inputs, outputs=output)
 
 def distance_regression():
-    data = np.load('./data/periodic_100000.npz') # (?, 2, 5000)
+    data = np.load('./data/periodic_100000.npz', mmap_mode='r') # (?, 2, 5000)
     X, peaks = data['signals'], data['peaks']
 
     X = X.swapaxes(1, 2) # (?, 5000, 2)
@@ -68,6 +68,10 @@ def abnormal_detection():
     return X, y
 
 if __name__ == '__main__':
+    import wandb
+    from wandb.keras import WandbCallback
+    wandb.init(project="distance", entity='toosyou')
+
     X, y = distance_regression()
 
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.33, random_state=42)
@@ -77,12 +81,14 @@ if __name__ == '__main__':
 
     # model.compile('adam', loss='CategoricalCrossentropy',
     #                 metrics='acc')
-    model.compile('adam', loss='MeanAbsoluteError', metrics=['MeanAbsoluteError'])
+    model.compile('adam', loss='MeanAbsoluteError', 
+                    metrics=['MeanAbsoluteError'],
+                    run_eagerly=True)
 
     model.fit(X_train, y_train, batch_size=64, 
                 epochs=1000, validation_data=(X_valid, y_valid),
                 callbacks=[
                     EarlyStopping(patience=2),
                     PriorPrinter(),
-                    ModelCheckpoint('/tmp/periodic_models', save_best_only=True)
+                    WandbCallback()
                 ])
