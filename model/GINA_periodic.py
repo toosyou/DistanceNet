@@ -3,8 +3,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import pytorch_lightning as pl
-from model.distance import MultiHeadDistanceLayer
+#from model.distance import MultiHeadDistanceLayer
+from model.GINA_V1_2_3 import MultiHeadDistanceLayer
 from utils.visualization import atten_heatmap
+import wandb
 
 class GINA_periodic(pl.LightningModule):
     def __init__(self, input_length, num_head):
@@ -61,8 +63,6 @@ class GINA_periodic(pl.LightningModule):
 
         self.log('val_loss', loss, on_epoch=True, prog_bar=True, logger=True)
 
-        return loss, atten
-    
     def test_step(self, batch, batch_idx):
         x, y = batch
         
@@ -70,9 +70,11 @@ class GINA_periodic(pl.LightningModule):
         output, atten = self(x)
 
         for index in range(atten.size(0)):
+            image_array = []
             for i in range(atten.size(1)):
-                plot = atten_heatmap(x[index, 0, ::16].cpu(), x[index, 1, ::16].cpu(), atten[index, i, :, :].cpu(), figsize=(5,5))
-                self.logger.experiment.log({f'{index}_plot_head_{i}': plot})
+                plot = atten_heatmap(x[index, 0, ::16].cpu(), x[index, 1, ::16].cpu(), atten[index, i, :, :].cpu(), figsize=(20,20))
+                image_array.append(wandb.Image(plot))
+            self.logger.experiment.log({f'plot_{index}': image_array})
 
 
     def configure_optimizers(self):

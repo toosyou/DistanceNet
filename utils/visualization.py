@@ -73,3 +73,18 @@ def atten_heatmap(signal1, signal2, attention, figsize=(20, 20)):
     plt.subplots_adjust(wspace=0.01, hspace=0.01)
 
     return plt
+
+def signal_plotter(signal):
+    """
+    Args:
+        signal: (2, signal_length)
+    """
+    fig, axes = plt.subplots(2, 1, figsize=(40, 5))
+    ax1 = axes[0]
+    ax2 = axes[1]
+    ax1.set_title('ECG')
+    ax2.set_title('PCG')
+    ax1.plot(signal[0])
+    ax2.plot(signal[1])
+    
+    return plt

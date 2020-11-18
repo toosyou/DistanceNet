@@ -4,3 +4,4 @@ wandb
 .vscode
 *.pkl
 *.npz
+*npy

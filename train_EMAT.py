@@ -2,39 +2,42 @@ from model.simple_CNN import simple_CNN
 import numpy as np
 import torch
 import torch.utils.data as Data
-import torch.nn as nn
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 from sklearn.model_selection import train_test_split
-from utils.visualization import atten_heatmap
-
-from data.gen_data import gen_distance_peak_data, gen_distance_peak_data_choice
-from model.GINA_periodic import GINA_periodic
-from data.gen_data import DataGenerator
-
+from utils.generate_emat import cal_emat
 import os
+
+from model.GINA_periodic import GINA_periodic
+from model.simple_CNN import simple_CNN
 
 wandb_logger = WandbLogger(project='gina', log_model=True)
 
-
-def distance_regression():
-    data = np.load('./data/periodic_100000.npz')
-    X, peaks = data['signals'], data['peaks']
-
-    #X = X.swapaxes(1, 2)
-    y = peaks[:, 1, :] - peaks[:, 0, :]
-    y = y.mean(axis=-1)
-    return X, y
-
-
 if __name__ == "__main__":
     batch_size = 64
-    epochs=100
-    X, y = distance_regression()
+    epochs = 100
+    X_normal = np.load('./data/emat/normal_X.npy')
+    X_abnormal = np.load('./data/emat/abnormal_X.npy')
+    
 
-    X = X[:1000, ...]
-    y = y[:1000, ...]
+    if os.path.exists('./data/emat/normal_y.npy'):
+        y_normal = np.load('./data/emat/normal_y.npy')
+    else:
+        y_normal = cal_emat(X_normal[:, 0, :], X_normal[:, 1, :], fs=500)
+        np.save('./data/emat/normal_y.npy', y_normal)
+    
+    if os.path.exists('./data/emat/abnormal_y.npy'):
+        y_abnormal = np.load('./data/emat/abnormal_y.npy')
+    else:
+        y_abnormal = cal_emat(X_abnormal[:, 0, :], X_abnormal[:, 1, :], fs=500)
+        np.save('./data/emat/abnormal_y.npy', y_abnormal)
+
+    X = np.concatenate([X_normal, X_abnormal], axis=0)
+    y = np.concatenate([y_normal, y_abnormal], axis=0)
+
+    X = X[~np.isnan(y), ...]
+    y = y[~np.isnan(y)]
 
     X_train, X_valid, y_train, y_valid = train_test_split(X, y, test_size=0.33, random_state=42)
 
@@ -46,7 +49,9 @@ if __name__ == "__main__":
     train_loader = Data.DataLoader(train_set, batch_size, shuffle=True, num_workers=4)
     val_loader = Data.DataLoader(val_set, batch_size, shuffle=False, num_workers=4)
     test_loader = Data.DataLoader(test_set, batch_size, shuffle=False, num_workers=4)
-    model = GINA_periodic(X_train.shape[2], 16).double().cuda()
+
+    #model = GINA_periodic(X_train.shape[2], 16).double().cuda()
+    model = simple_CNN(X_train.shape[2]).double().cuda()
     #model = simple_CNN(X_train.shape[2]).double()
     trainer = pl.Trainer(max_epochs=epochs, gpus=[0], callbacks=[EarlyStopping(monitor='val_loss', patience=10)], logger=wandb_logger)
     trainer.fit(model, train_loader, val_loader)

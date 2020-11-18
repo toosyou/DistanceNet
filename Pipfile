@@ -23,6 +23,7 @@ pytorch-lightning = "*"
 einops = "*"
 wandb = "*"
 plotly = "*"
+better-exceptions = "*"
 
 [requires]
 python_version = "3.6"
