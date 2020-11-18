@@ -15,7 +15,9 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         config = {
             'num_head': self.num_head,
             'head_dim': self.head_dim,
-            'max_length': self.max_length
+            'max_length': self.max_length,
+            'global_mode': self.global_mode,
+            'window_size': self.window_size,
         }
         base_config = super().get_config()
         config.update(base_config)
@@ -62,7 +64,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         # embedding
         query = tf.matmul(query, self.query_embedding_weight)   # (?, data_length, num_head * head_dim)
         key   = tf.matmul(key, self.key_embedding_weight)       # (?, data_length, num_head * head_dim)
-        value = tf.matmul(value, self.value_embedding_weight)   # (?, data_length, num_head)
+        value = K.sigmoid(tf.matmul(value, self.value_embedding_weight))   # (?, data_length, num_head)
 
         multi_head_query    = tf.concat(tf.split(query[None, ...], self.num_head, axis=3), axis=0) + self.query_embedding_bias      # (num_head, ?, data_length, head_dim)
         multi_head_key      = tf.concat(tf.split(key[None, ...], self.num_head, axis=3), axis=0)   + self.key_embedding_bias        # (num_head, ?, data_length, head_dim)
