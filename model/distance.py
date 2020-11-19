@@ -73,7 +73,13 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         # calculate distance attention
         attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head, ?, data_length, data_length)
         attention = tf.keras.layers.Softmax()(attention)
-        attention = tf.linalg.band_part(attention, -1, 0) # lower triangle
+
+        attention = tf.linalg.band_part(attention, 0, -1) # upper triangle
+        # distance padding
+        attention = tf.linalg.diag_part(attention, k=(0, data_length-1))
+        attention = K.permute_dimensions(attention, (0, 1, 3, 2)) # transpose
+        attention = K.reverse(attention, axes=(-2, -1))
+
         attention = attention * multi_head_value[..., None]
 
         # smoothen
