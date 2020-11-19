@@ -96,6 +96,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             output = tf.matmul(attention, self.output_embedding_weight) # (num_head, ?, data_length, output_dim)
             output = K.permute_dimensions(output, (1, 2, 3, 0)) # (?, data_length, output_dim, num_head)
             output = K.reshape(output, (-1, data_length, self.output_dim * self.num_head)) # (?, data_length, output_dim * num_head)
+
+            attention = K.permute_dimensions(attention, (1, 2, 3, 0)) # (?, data_length, data_length, num_head)
         
         if return_attention:
             return output, attention
