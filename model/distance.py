@@ -3,12 +3,13 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, max_length, global_mode, window_size=3, **kwargs):
+    def __init__(self, num_head, head_dim, max_length, global_mode, output_dim=None, window_size=3, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.max_length = max_length
         self.global_mode = global_mode
         self.window_size = window_size
+        self.output_dim = output_dim
         super().__init__(**kwargs)
 
     def get_config(self):
@@ -17,6 +18,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             'head_dim': self.head_dim,
             'max_length': self.max_length,
             'global_mode': self.global_mode,
+            'output_dim': self.output_dim,
             'window_size': self.window_size,
         }
         base_config = super().get_config()
@@ -51,9 +53,10 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
                                             initializer='GlorotNormal',
                                             trainable=True, name='learned_pe')
 
-        # distance matrix of shape (max_length, max_length)
-        self.distances_matrix = K.arange(self.max_length, dtype='float32')[None, :] - K.arange(self.max_length, dtype='float32')[:, None] 
-        self.distances_matrix /= self.max_length
+        if self.global_mode == False: # local mode
+            self.output_embedding_weight = self.add_weight(shape=(self.max_length, self.output_dim),
+                                                            initializer='GlorotNormal',
+                                                            trainable=True, name='output_embedding_weight')
 
     def call(self, inputs, return_attention=False):
         query, key, value = inputs + self.learned_pe, inputs + self.learned_pe, inputs
@@ -84,12 +87,15 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
 
         # smoothen
         attention = K.pool2d(attention, (1, self.window_size), (1, 1), 'same', 'channels_first', 'avg')
-        attention = K.permute_dimensions(attention, (1, 2, 3, 0)) # (?, data_length, data_length, num_head)
-
+        
         if self.global_mode:
+            attention = K.permute_dimensions(attention, (1, 2, 3, 0)) # (?, data_length, data_length, num_head)
             output = K.sum(attention, axis=1)
         else:
-            output = attention
+            # do output embedding
+            output = tf.matmul(attention, self.output_embedding_weight) # (num_head, ?, data_length, output_dim)
+            output = K.permute_dimensions(output, (1, 2, 3, 0)) # (?, data_length, output_dim, num_head)
+            output = K.reshape(output, (-1, data_length, self.output_dim * self.num_head)) # (?, data_length, output_dim * num_head)
         
         if return_attention:
             return output, attention
