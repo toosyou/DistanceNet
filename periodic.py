@@ -74,11 +74,14 @@ def distance_regression():
     X = X.swapaxes(1, 2) # (?, 5000, 2)
     y = peaks[:, 1, :] - peaks[:, 0, :] # (?, 10)
 
+    y = y / y.mean(axis=-1)[:, None]
+    print(y.shape)
+
     input_length = X.shape[1]
     backbone_model = backbone(input_length)
 
-    distance_layer = MultiHeadDistanceLayer(16, 16, name='distance_layer', dynamic=False, mode='local', output_dim=16)
-    distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
+    distance_layer = MultiHeadDistanceLayer(16, 16, name='distance_layer', dynamic=False, mode='local', output_dim=16, distance_norm=True)
+    # distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
     output = distance_layer(backbone_model(backbone_model.inputs))
     output = Flatten()(output)
     output = Dense(10)(output)

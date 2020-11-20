@@ -3,12 +3,13 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, **kwargs):
+    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, distance_norm=False, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.mode = mode
-        self.window_size = window_size
         self.output_dim = output_dim
+        self.window_size = window_size
+        self.distance_norm = distance_norm
 
         assert self.mode in ('global', 'local'), 'mode must be either global or local'
         super().__init__(**kwargs)
@@ -68,12 +69,14 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
 
         # smoothen
         attention = K.pool2d(attention, (1, self.window_size), (1, 1), 'same', 'channels_first', 'avg')
+
+        if self.distance_norm:
+            attention = DistanceNorm()(attention)
         
         if self.mode == 'global':
             output = K.sum(attention, axis=2)                   # (num_head, ?, data_length)
             output = K.permute_dimensions(output, (1, 2, 0))    # (?, data_length, num_head)
         else:
-            # do output embedding
             output = self.output_embedding(attention)                                       # (num_head, ?, data_length, output_dim)
             output = K.permute_dimensions(output, (1, 2, 3, 0))                             # (?, data_length, output_dim, num_head)
             output = K.reshape(output, (-1, data_length, self.output_dim * self.num_head))  # (?, data_length, output_dim * num_head)
@@ -84,3 +87,36 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
 
     def compute_output_shape(self, input_shape):
         return [input_shape[0], input_shape[1], self.num_head]
+
+class DistanceNorm(tf.keras.layers.Layer):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def build(self, input_shape):
+        max_distance = input_shape[-1]
+        self.range_max_distance = tf.range(max_distance, dtype=tf.float32)
+
+    def call(self, distance):
+        '''distance: (..., data_length, max_distance)
+        '''
+        original_shape = tf.shape(distance)
+        data_length = original_shape[-2]
+        max_distance = original_shape[-1]
+
+        distance = K.reshape(distance, (-1, data_length, max_distance))
+
+        max_distance_sum    = K.sum(distance, axis=-2) # (-1, max_distance)
+        mean_distance       = K.sum(max_distance_sum * self.range_max_distance, axis=-1) # (-1)
+        mean_distance       = mean_distance / K.sum(max_distance_sum, axis=-1) # (-1)
+
+        scales = mean_distance / (0.5 * K.cast(max_distance, tf.float32)) # (-1)
+
+        new_indices = scales[:, None] * self.range_max_distance[None, :]                    # (-1, max_distance)
+        new_indices = K.clip(K.cast(new_indices, tf.int32), 0, max_distance)
+        new_indices = K.expand_dims(K.expand_dims(new_indices, axis=1), axis=-1)            # (-1, 1, max_distance, 1)
+        new_indices = tf.repeat(new_indices, data_length, axis=1)                           # (-1, data_length, max_distance, 1)
+
+        # TODO: linear interpolation
+        normed_distance = tf.gather_nd(distance, new_indices, batch_dims=2)
+
+        return K.reshape(normed_distance, original_shape)
