@@ -77,7 +77,7 @@ def distance_regression():
     input_length = X.shape[1]
     backbone_model = backbone(input_length)
 
-    distance_layer = MultiHeadDistanceLayer(16, 16, input_length//(2**4), name='distance_layer', dynamic=False, global_mode=False, output_dim=16)
+    distance_layer = MultiHeadDistanceLayer(16, 16, name='distance_layer', dynamic=False, mode='local', output_dim=16)
     distance_layer = tf.recompute_grad(distance_layer) # to reduce memory useages
     output = distance_layer(backbone_model(backbone_model.inputs))
     output = Flatten()(output)
