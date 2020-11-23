@@ -3,13 +3,14 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, distance_norm=False, **kwargs):
+    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, distance_norm=False, max_distance=np.Inf, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.mode = mode
         self.output_dim = output_dim
         self.window_size = window_size
         self.distance_norm = distance_norm
+        self.max_distance = max_distance
 
         assert self.mode in ('global', 'local'), 'mode must be either global or local'
         super().__init__(**kwargs)
@@ -28,6 +29,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         data_length, input_dim = input_shape[-2:] # (n_batch, data_length, feature_dim)
+
+        self.max_distance = np.clip(self.max_distance, 0, data_length-1)
 
         self.query_embedding    = tf.keras.layers.Dense(self.num_head * self.head_dim, use_bias=True)
         self.key_embedding      = tf.keras.layers.Dense(self.num_head * self.head_dim, use_bias=True)
@@ -59,9 +62,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head, ?, data_length, data_length)
         attention = tf.keras.layers.Softmax()(attention)
 
-        attention = tf.linalg.band_part(attention, 0, -1) # upper triangle
         # distance padding
-        attention = tf.linalg.diag_part(attention, k=(0, data_length-1))
+        attention = tf.linalg.diag_part(attention, k=(-self.max_distance, self.max_distance)) # (num_head, ?, data_length, 2 * max_d + 1)
         attention = K.permute_dimensions(attention, (0, 1, 3, 2)) # transpose
         attention = K.reverse(attention, axes=(-2, -1))
 
@@ -74,8 +76,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             attention = DistanceNorm()(attention)
         
         if self.mode == 'global':
-            output = K.sum(attention, axis=2)                   # (num_head, ?, data_length)
-            output = K.permute_dimensions(output, (1, 2, 0))    # (?, data_length, num_head)
+            output = K.sum(attention, axis=2)                   # (num_head, ?, 2 * max_d + 1)
+            output = K.permute_dimensions(output, (1, 2, 0))    # (?, 2 * max_d + 1, num_head)
         else:
             output = self.output_embedding(attention)                                       # (num_head, ?, data_length, output_dim)
             output = K.permute_dimensions(output, (1, 2, 3, 0))                             # (?, data_length, output_dim, num_head)
