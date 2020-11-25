@@ -144,8 +144,10 @@ class DistanceNorm(tf.keras.layers.Layer):
 
         distance = K.reshape(distance, (-1, data_length, max_distance))
 
+        max_distance = K.cast(max_distance, dtype=tf.float32)
+
         mean, std = self.get_mean_std(distance) # (-1), (-1)
-        new_indices = (self.range_max_distance[None, :] - mean[:, None]) / std[:, None] + K.cast(max_distance, dtype=tf.float32) / 2. # (-1, max_distance)
+        new_indices = (self.range_max_distance[None, :] - mean[:, None]) / std[:, None] * max_distance * 0.25 + max_distance / 2. # (-1, max_distance)
         normed_distance = self.interpolated_gather_nd(distance, new_indices)
 
         return K.reshape(normed_distance, original_shape)
