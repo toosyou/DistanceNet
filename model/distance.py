@@ -96,7 +96,44 @@ class DistanceNorm(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         max_distance = input_shape[-1]
-        self.range_max_distance = tf.range(max_distance, dtype=tf.float32)
+        self.range_max_distance = tf.range(max_distance, dtype=tf.float32) - max_distance / 2. # (max_distance)
+
+    @staticmethod
+    def interpolated_gather_nd(source, indices):
+        original_shape = tf.shape(source)
+        data_length = original_shape[-2]
+        max_distance = original_shape[-1]
+
+        integer_indices = K.cast(indices, tf.int32)
+
+        floor_indices = K.clip(integer_indices, 0, max_distance-1)
+        ceil_indices = K.clip(integer_indices+1, 0, max_distance-1)
+
+        floor_indices = K.expand_dims(K.expand_dims(floor_indices, axis=1), axis=-1)            # (-1, 1, max_distance, 1)
+        ceil_indices = K.expand_dims(K.expand_dims(ceil_indices, axis=1), axis=-1)              # (-1, 1, max_distance, 1)
+
+        floor_indices = tf.repeat(floor_indices, data_length, axis=1)                           # (-1, data_length, max_distance, 1)
+        ceil_indices = tf.repeat(ceil_indices, data_length, axis=1)                             # (-1, data_length, max_distance, 1)
+
+        weights = indices - tf.math.floor(indices)
+        weights = K.expand_dims(weights, axis=1)
+        weights = tf.repeat(weights, data_length, axis=1)
+    
+        # interpolation
+        normed_distance_floor = tf.gather_nd(source, floor_indices, batch_dims=2)
+        normed_distance_ceil = tf.gather_nd(source, ceil_indices, batch_dims=2)
+        normed_distance = normed_distance_ceil * weights + normed_distance_floor * (1. - weights)
+
+        return normed_distance
+
+    def get_mean_std(self, distance):
+        px    = K.sum(distance, axis=-2)  # (-1, max_distance)
+        px    = px / K.sum(px, axis=-1)[:, None]   # (-1, max_distance), normed
+
+        mean  = K.sum(px * self.range_max_distance, axis=-1) # (-1)
+        std   = K.sqrt(K.sum(px * K.pow(self.range_max_distance[None, :] - mean[:, None], 2), axis=-1)) # (-1)
+
+        return mean, std
 
     def call(self, distance):
         '''distance: (..., data_length, max_distance)
@@ -107,18 +144,8 @@ class DistanceNorm(tf.keras.layers.Layer):
 
         distance = K.reshape(distance, (-1, data_length, max_distance))
 
-        max_distance_sum    = K.sum(distance, axis=-2) # (-1, max_distance)
-        mean_distance       = K.sum(max_distance_sum * self.range_max_distance, axis=-1) # (-1)
-        mean_distance       = mean_distance / K.sum(max_distance_sum, axis=-1) # (-1)
-
-        scales = mean_distance / (0.5 * K.cast(max_distance, tf.float32)) # (-1)
-
-        new_indices = scales[:, None] * self.range_max_distance[None, :]                    # (-1, max_distance)
-        new_indices = K.clip(K.cast(new_indices, tf.int32), 0, max_distance)
-        new_indices = K.expand_dims(K.expand_dims(new_indices, axis=1), axis=-1)            # (-1, 1, max_distance, 1)
-        new_indices = tf.repeat(new_indices, data_length, axis=1)                           # (-1, data_length, max_distance, 1)
-
-        # TODO: linear interpolation
-        normed_distance = tf.gather_nd(distance, new_indices, batch_dims=2)
+        mean, std = self.get_mean_std(distance) # (-1), (-1)
+        new_indices = (self.range_max_distance[None, :] - mean[:, None]) / std[:, None] + K.cast(max_distance, dtype=tf.float32) / 2. # (-1, max_distance)
+        normed_distance = self.interpolated_gather_nd(distance, new_indices)
 
         return K.reshape(normed_distance, original_shape)
