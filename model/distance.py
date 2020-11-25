@@ -96,7 +96,7 @@ class DistanceNorm(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         max_distance = input_shape[-1]
-        self.range_max_distance = tf.range(max_distance, dtype=tf.float32) - max_distance / 2. # (max_distance)
+        self.range_max_distance = tf.range(max_distance, dtype=tf.float32) - max_distance // 2. # (max_distance)
 
     @staticmethod
     def interpolated_gather_nd(source, indices):
@@ -147,7 +147,7 @@ class DistanceNorm(tf.keras.layers.Layer):
         max_distance = K.cast(max_distance, dtype=tf.float32)
 
         mean, std = self.get_mean_std(distance) # (-1), (-1)
-        new_indices = (self.range_max_distance[None, :] - mean[:, None]) / std[:, None] * max_distance * 0.25 + max_distance / 2. # (-1, max_distance)
+        new_indices = (self.range_max_distance[None, :] * std[:, None] / (max_distance * 0.1) + mean[:, None])  + max_distance / 2. # (-1, max_distance)
         normed_distance = self.interpolated_gather_nd(distance, new_indices)
 
         return K.reshape(normed_distance, original_shape)
