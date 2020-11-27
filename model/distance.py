@@ -22,6 +22,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             'mode': self.mode,
             'output_dim': self.output_dim,
             'window_size': self.window_size,
+            'max_distance': self.max_distance,
         }
         base_config = super().get_config()
         config.update(base_config)
@@ -30,7 +31,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
     def build(self, input_shape):
         data_length, input_dim = input_shape[-2:] # (n_batch, data_length, feature_dim)
 
-        self.max_distance = np.clip(self.max_distance, 0, data_length-1)
+        self.max_distance = np.clip(self.max_distance, 1, data_length-1).astype(int)
 
         self.query_embedding    = tf.keras.layers.Dense(self.num_head * self.head_dim, use_bias=True)
         self.key_embedding      = tf.keras.layers.Dense(self.num_head * self.head_dim, use_bias=True)
@@ -63,7 +64,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         attention = tf.keras.layers.Softmax()(attention)
 
         # distance padding
-        attention = tf.linalg.diag_part(attention, k=(-self.max_distance, self.max_distance)) # (num_head, ?, data_length, 2 * max_d + 1)
+        attention = tf.linalg.diag_part(attention, k=(-(self.max_distance-1), self.max_distance)) # (num_head, ?, data_length, 2 * max_d)
         attention = K.permute_dimensions(attention, (0, 1, 3, 2)) # transpose
         attention = K.reverse(attention, axes=(-2, -1))
 
@@ -76,8 +77,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             attention = DistanceNorm()(attention)
         
         if self.mode == 'global':
-            output = K.sum(attention, axis=2)                   # (num_head, ?, 2 * max_d + 1)
-            output = K.permute_dimensions(output, (1, 2, 0))    # (?, 2 * max_d + 1, num_head)
+            output = K.sum(attention, axis=2)                   # (num_head, ?, 2 * max_d)
+            output = K.permute_dimensions(output, (1, 2, 0))    # (?, 2 * max_d, num_head)
         else:
             output = self.output_embedding(attention)                                       # (num_head, ?, data_length, output_dim)
             output = K.permute_dimensions(output, (1, 2, 3, 0))                             # (?, data_length, output_dim, num_head)
@@ -90,13 +91,41 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
     def compute_output_shape(self, input_shape):
         return [input_shape[0], input_shape[1], self.num_head]
 
+class SmoothEmbedding(tf.keras.layers.Layer):
+    def __init__(self, output_dim, downsample_ratio=4, **kwargs):
+        self.output_dim = output_dim
+        self.downsample_ratio = downsample_ratio
+        super().__init__(**kwargs)
+
+    def get_config(self):
+        config = {
+            'output_dim': self.output_dim,
+            'downsample_ratio': self.downsample_ratio
+        }
+        base_config = super().get_config()
+        config.update(base_config)
+        return config
+
+    def build(self, input_shape):
+        input_dim = input_shape[-1]
+
+        self.weight = self.add_weight(shape=(input_dim // self.downsample_ratio, self.output_dim),
+                                        initializer='GlorotNormal',
+                                        trainable=True, name='weight')
+        self.bias = self.add_weight(shape=(self.output_dim),
+                                        initializer='zeros',
+                                        trainable=True, name='bias')
+
+    def call(self, inputs):
+        pass
+
 class DistanceNorm(tf.keras.layers.Layer):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
     def build(self, input_shape):
-        max_distance = input_shape[-1]
-        self.range_max_distance = tf.range(max_distance, dtype=tf.float32) - max_distance // 2. # (max_distance)
+        max_distance = input_shape[-1] # N-1 + 1 + N
+        self.range_max_distance = tf.range(max_distance, dtype=tf.float32) - max_distance // 2 + 1. # (max_distance): [-(N-1), -(N-2), ..., 0, ..., N]
 
     @staticmethod
     def interpolated_gather_nd(source, indices):
@@ -147,7 +176,7 @@ class DistanceNorm(tf.keras.layers.Layer):
         max_distance = K.cast(max_distance, dtype=tf.float32)
 
         mean, std = self.get_mean_std(distance) # (-1), (-1)
-        new_indices = (self.range_max_distance[None, :] * std[:, None] / (max_distance * 0.1) + mean[:, None])  + max_distance / 2. # (-1, max_distance)
+        new_indices = (self.range_max_distance[None, :] * std[:, None] / (max_distance * 0.1) + mean[:, None]) + max_distance / 2. - 1 # (-1, max_distance)
         normed_distance = self.interpolated_gather_nd(distance, new_indices)
 
         return K.reshape(normed_distance, original_shape)
