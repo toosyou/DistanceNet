@@ -23,6 +23,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             'mode': self.mode,
             'output_dim': self.output_dim,
             'window_size': self.window_size,
+            'distance_norm': self.distance_norm,
             'max_distance': self.max_distance,
             'smooth_embedding_ratio': self.smooth_embedding_ratio,
         }
@@ -39,15 +40,21 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.key_embedding      = tf.keras.layers.Dense(self.num_head * self.head_dim, use_bias=True)
         self.value_embedding    = tf.keras.layers.Dense(self.num_head, use_bias=False)
 
-        self.learned_pe = self.add_weight(shape=(data_length, input_dim),
+        self.distance_pe = self.add_weight(shape=(self.num_head, 1, self.head_dim, 2 * self.max_distance + 1),
                                             initializer='GlorotNormal',
-                                            trainable=True, name='learned_pe')
+                                            trainable=True, name='distance_pe')
+        self.u_pe        = self.add_weight(shape=(self.num_head, 1, 1, self.head_dim),
+                                            initializer='GlorotNormal',
+                                            trainable=True, name='u_pe')
+        self.v_pe        = self.add_weight(shape=(self.num_head, 1, 1, self.head_dim),
+                                            initializer='GlorotNormal',
+                                            trainable=True, name='v_pe')
 
         if self.mode == 'local': # local mode
             self.output_embedding = SmoothEmbedding(self.output_dim, self.smooth_embedding_ratio)
 
     def call(self, inputs, return_attention=False):
-        query, key, value = inputs + self.learned_pe, inputs + self.learned_pe, inputs
+        query, key, value = inputs, inputs, inputs
 
         # get sizes
         data_length = query.shape[1]
@@ -62,13 +69,18 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         multi_head_value    = K.permute_dimensions(value, (2, 0, 1))                                    # (num_head, ?, data_length)
         
         # calculate distance attention
-        attention = tf.matmul(multi_head_query, multi_head_key, transpose_b=True) * (float(self.head_dim) ** -0.5) # (num_head, ?, data_length, data_length)
-        attention = tf.keras.layers.Softmax()(attention)
+        attention = tf.matmul(multi_head_query + self.u_pe, multi_head_key, transpose_b=True) # (num_head, ?, data_length, data_length)
 
         # distance padding
-        attention = tf.linalg.diag_part(attention, k=(-(self.max_distance-1), self.max_distance)) # (num_head, ?, data_length, 2 * max_d)
+        attention = tf.linalg.diag_part(attention, k=(-self.max_distance, self.max_distance)) # (num_head, ?, data_length, 2 * max_d + 1)
         attention = K.permute_dimensions(attention, (0, 1, 3, 2)) # transpose
         attention = K.reverse(attention, axes=(-2, -1))
+
+        # relative positional encoding
+        attention = attention + tf.matmul(multi_head_query + self.v_pe, self.distance_pe)   # (num_head, ?, data_length, 2 * max_d + 1)
+        
+        attention = attention * (float(self.head_dim) ** -0.5)
+        attention = tf.keras.layers.Softmax()(attention)
 
         attention = attention * multi_head_value[..., None]
 
@@ -79,8 +91,8 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             attention = DistanceNorm()(attention)
         
         if self.mode == 'global':
-            output = K.sum(attention, axis=2)                   # (num_head, ?, 2 * max_d)
-            output = K.permute_dimensions(output, (1, 2, 0))    # (?, 2 * max_d, num_head)
+            output = K.sum(attention, axis=2)                   # (num_head, ?, 2 * max_d + 1)
+            output = K.permute_dimensions(output, (1, 2, 0))    # (?, 2 * max_d + 1, num_head)
         else:
             output = self.output_embedding(attention)                                       # (num_head, ?, data_length, output_dim)
             output = K.permute_dimensions(output, (1, 2, 3, 0))                             # (?, data_length, output_dim, num_head)
