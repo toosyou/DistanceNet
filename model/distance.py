@@ -3,7 +3,7 @@ import tensorflow as tf
 import tensorflow.keras.backend as K
 
 class MultiHeadDistanceLayer(tf.keras.layers.Layer):
-    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, distance_norm=False, max_distance=np.Inf, **kwargs):
+    def __init__(self, num_head, head_dim, mode, output_dim=None, window_size=3, distance_norm=False, max_distance=np.Inf, smooth_embedding_ratio=4, **kwargs):
         self.num_head = num_head
         self.head_dim = head_dim
         self.mode = mode
@@ -11,6 +11,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
         self.window_size = window_size
         self.distance_norm = distance_norm
         self.max_distance = max_distance
+        self.smooth_embedding_ratio= smooth_embedding_ratio
 
         assert self.mode in ('global', 'local'), 'mode must be either global or local'
         super().__init__(**kwargs)
@@ -23,6 +24,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
             'output_dim': self.output_dim,
             'window_size': self.window_size,
             'max_distance': self.max_distance,
+            'smooth_embedding_ratio': self.smooth_embedding_ratio,
         }
         base_config = super().get_config()
         config.update(base_config)
@@ -42,8 +44,7 @@ class MultiHeadDistanceLayer(tf.keras.layers.Layer):
                                             trainable=True, name='learned_pe')
 
         if self.mode == 'local': # local mode
-            self.output_embedding = SmoothEmbedding(self.output_dim, 4)
-            # self.output_embedding = tf.keras.layers.Dense(self.output_dim, use_bias=False)
+            self.output_embedding = SmoothEmbedding(self.output_dim, self.smooth_embedding_ratio)
 
     def call(self, inputs, return_attention=False):
         query, key, value = inputs + self.learned_pe, inputs + self.learned_pe, inputs
@@ -109,9 +110,7 @@ class SmoothEmbedding(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         input_dim = input_shape[-1]
-        assert input_dim % self.downsample_ratio == 0, 'input_dim mod downsample_ratio must be 0'
-
-        self.weight = self.add_weight(shape=(1, 1, input_dim // self.downsample_ratio, self.output_dim),
+        self.weight = self.add_weight(shape=(input_dim // self.downsample_ratio, self.output_dim, 1),
                                         initializer='GlorotNormal',
                                         trainable=True, name='weight')
         self.bias = self.add_weight(shape=(self.output_dim),
@@ -121,12 +120,12 @@ class SmoothEmbedding(tf.keras.layers.Layer):
     def call(self, inputs):
         '''inputs: (..., input_dim)
         '''
-        self.smooth_weight = tf.keras.layers.UpSampling2D(size=(self.downsample_ratio, 1), 
-                                                    data_format='channels_first',
-                                                    interpolation='bilinear')(self.weight)
-        self.smooth_weight = tf.squeeze(self.smooth_weight, axis=[0, 1])
+        input_dim = tf.shape(inputs)[-1]
 
-        output = tf.matmul(inputs, self.smooth_weight) + self.bias # (..., output_dim)
+        smooth_weight = tf.image.resize(self.weight, [input_dim, self.output_dim], 'bilinear')
+        smooth_weight = tf.squeeze(smooth_weight, axis=[-1]) # (input_dim, output_dim)
+
+        output = tf.matmul(inputs, smooth_weight) + self.bias # (..., output_dim)
         return output
 
 class DistanceNorm(tf.keras.layers.Layer):
