@@ -154,10 +154,14 @@ class DistanceNorm(tf.keras.layers.Layer):
         data_length = original_shape[-2]
         max_distance = original_shape[-1]
 
+        paddings = [[0, 0]] * (tf.shape(source).shape[0] - 1) + [[1, 1]]
+        source = tf.pad(source, paddings)
+
+        indices = K.clip(indices + 1, 0, K.cast(max_distance, tf.float32) - 1)
         integer_indices = K.cast(indices, tf.int32)
 
-        floor_indices = K.clip(integer_indices, 0, max_distance-1)
-        ceil_indices = K.clip(integer_indices+1, 0, max_distance-1)
+        floor_indices, ceil_indices = integer_indices, integer_indices + 1
+        weights = indices - K.cast(floor_indices, tf.float32)
 
         floor_indices = K.expand_dims(K.expand_dims(floor_indices, axis=1), axis=-1)            # (-1, 1, max_distance, 1)
         ceil_indices = K.expand_dims(K.expand_dims(ceil_indices, axis=1), axis=-1)              # (-1, 1, max_distance, 1)
@@ -165,7 +169,6 @@ class DistanceNorm(tf.keras.layers.Layer):
         floor_indices = tf.repeat(floor_indices, data_length, axis=1)                           # (-1, data_length, max_distance, 1)
         ceil_indices = tf.repeat(ceil_indices, data_length, axis=1)                             # (-1, data_length, max_distance, 1)
 
-        weights = indices - tf.math.floor(indices)
         weights = K.expand_dims(weights, axis=1)
         weights = tf.repeat(weights, data_length, axis=1)
     
